@@ -2,6 +2,7 @@ package commands
 
 import (
 	b64 "encoding/base64"
+	"io/ioutil"
 	"log"
 	"os"
 
@@ -45,6 +46,26 @@ func Login(loginFlags *flags.LoginExecFlags) error {
 	if !sharedCreds.Expired() && !loginFlags.Force {
 		log.Println("credentials are not expired skipping")
 		return nil
+	}
+
+	home, _ := os.UserHomeDir()
+	samlCachePath := home + "/.saml2aws-" + account.Username
+	if samlAssertion, err := ioutil.ReadFile(samlCachePath); err == nil {
+
+		role, err := selectAwsRole(string(samlAssertion), account)
+		if err == nil {
+			log.Println("Selected role:", role.RoleARN)
+
+			awsCreds, err := loginToStsUsingRole(account, role, string(samlAssertion))
+			if err != nil {
+				return errors.Wrap(err, "error logging into aws role using saml assertion")
+			}
+
+			return saveCredentials(awsCreds, sharedCreds)
+		}
+
+		log.Println("Failed to reuse cached SAML assertion:", err)
+		os.Remove(samlCachePath)
 	}
 
 	loginDetails, err := resolveLoginDetails(account, loginFlags)
@@ -97,6 +118,10 @@ func Login(loginFlags *flags.LoginExecFlags) error {
 	awsCreds, err := loginToStsUsingRole(account, role, samlAssertion)
 	if err != nil {
 		return errors.Wrap(err, "error logging into aws role using saml assertion")
+	}
+
+	if err := ioutil.WriteFile(samlCachePath, []byte(samlAssertion), 0600); err != nil {
+		log.Println("Warn: failed to cache SAML assertion:", err)
 	}
 
 	return saveCredentials(awsCreds, sharedCreds)
