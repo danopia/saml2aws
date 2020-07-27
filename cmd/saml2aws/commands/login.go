@@ -57,15 +57,13 @@ func Login(loginFlags *flags.LoginExecFlags) error {
 			log.Println("Selected role:", role.RoleARN)
 
 			awsCreds, err := loginToStsUsingRole(account, role, string(samlAssertion))
-			if err != nil {
-				return errors.Wrap(err, "error logging into aws role using saml assertion")
+			if err == nil {
+				return saveCredentials(awsCreds, sharedCreds)
 			}
-
-			return saveCredentials(awsCreds, sharedCreds)
 		}
 
-		log.Println("Failed to reuse cached SAML assertion:", err)
-		os.Remove(samlCachePath)
+		log.Println("Failed to reuse cached SAML assertion, starting over...")
+		_ = os.Remove(samlCachePath)
 	}
 
 	loginDetails, err := resolveLoginDetails(account, loginFlags)
